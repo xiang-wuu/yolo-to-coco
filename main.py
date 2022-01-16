@@ -1,3 +1,4 @@
+from cmath import pi
 from pathlib import Path
 
 from create_annotations import (
@@ -9,6 +10,7 @@ import cv2
 import argparse
 import json
 import numpy as np
+from tqdm import tqdm
 
 #################################################
 # Change the classes depend on your own dataset.#
@@ -18,16 +20,14 @@ import numpy as np
 YOLO_DARKNET_SUB_DIR = "YOLO_darknet"
 
 classes = [
-    "chair",
-    "handle",
-    "table",
-    "button",
     "person",
+    "vehicle",
+    "object"
 ]
 
 
 def get_images_info_and_annotations(opt):
-    path = Path(opt.path)
+    path = Path(opt.ipath)
     annotations = []
     images_annotations = []
     if path.is_dir():
@@ -40,10 +40,10 @@ def get_images_info_and_annotations(opt):
     image_id = 0
     annotation_id = 1  # In COCO dataset format, you must start annotation id with '1'
 
-    for file_path in file_paths:
+    for n, file_path in enumerate(tqdm(file_paths)):
         # Check how many items have progressed
-        if image_id % 1000 == 0:
-            print("Processing " + str(image_id) + " ...")
+        # if image_id % 1000 == 0:
+        #     print("Processing " + str(image_id) + " ...")
 
         img_file = cv2.imread(str(file_path))
         h, w, _ = img_file.shape
@@ -53,13 +53,17 @@ def get_images_info_and_annotations(opt):
         images_annotations.append(image_annotation)
 
         label_file_name = f"{file_path.stem}.txt"
-        if opt.yolo_subdir:
-            annotations_path = file_path.parent / YOLO_DARKNET_SUB_DIR / label_file_name
+        if opt.lpath:
+            # file_path.parent / YOLO_DARKNET_SUB_DIR / label_file_name
+            annotations_path = Path(opt.lpath) / label_file_name
+            # print(annotations_path)
+            # sys.exit(0)
         else:
             annotations_path = file_path.parent / label_file_name
 
         if not annotations_path.exists():
-            continue  # The image may not have any applicable annotation txt file.
+            # The image may not have any applicable annotation txt file.
+            continue
 
         with open(str(annotations_path), "r") as label_file:
             label_read_line = label_file.readlines()
@@ -71,31 +75,51 @@ def get_images_info_and_annotations(opt):
             category_id = (
                 int(label_line.split()[0]) + 1
             )  # you start with annotation id with '1'
-            x_center = float(label_line.split()[1])
-            y_center = float(label_line.split()[2])
-            width = float(label_line.split()[3])
-            height = float(label_line.split()[4])
 
-            int_x_center = int(img_file.shape[1] * x_center)
-            int_y_center = int(img_file.shape[0] * y_center)
-            int_width = int(img_file.shape[1] * width)
-            int_height = int(img_file.shape[0] * height)
+            if opt.predict is True:
+                conf = float(label_line.split()[1])
+                x_center = float(label_line.split()[2])
+                y_center = float(label_line.split()[3])
+                width = float(label_line.split()[4])
+                height = float(label_line.split()[5])
 
-            min_x = int_x_center - int_width / 2
-            min_y = int_y_center - int_height / 2
-            width = int_width
-            height = int_height
+                annotation = create_annotation_from_yolo_format(
+                    x_center,
+                    y_center,
+                    width,
+                    height,
+                    conf,
+                    image_id,
+                    category_id,
+                    annotation_id,
+                    segmentation=opt.box2seg,
+                )
+            elif opt.predict is False:
+                x_center = float(label_line.split()[1])
+                y_center = float(label_line.split()[2])
+                width = float(label_line.split()[3])
+                height = float(label_line.split()[4])
 
-            annotation = create_annotation_from_yolo_format(
-                min_x,
-                min_y,
-                width,
-                height,
-                image_id,
-                category_id,
-                annotation_id,
-                segmentation=opt.box2seg,
-            )
+                int_x_center = int(img_file.shape[1] * x_center)
+                int_y_center = int(img_file.shape[0] * y_center)
+                int_width = int(img_file.shape[1] * width)
+                int_height = int(img_file.shape[0] * height)
+
+                min_x = int_x_center - int_width / 2
+                min_y = int_y_center - int_height / 2
+                width = int_width
+                height = int_height
+                annotation = create_annotation_from_yolo_format(
+                    min_x,
+                    min_y,
+                    width,
+                    height,
+                    0,
+                    image_id,
+                    category_id,
+                    annotation_id,
+                    segmentation=opt.box2seg,
+                )
             annotations.append(annotation)
             annotation_id += 1
 
@@ -104,81 +128,25 @@ def get_images_info_and_annotations(opt):
     return images_annotations, annotations
 
 
-def debug(opt):
-    path = opt.path
-    color_list = np.random.randint(low=0, high=256, size=(len(classes), 3)).tolist()
-
-    # read the file
-    file = open(path, "r")
-    read_lines = file.readlines()
-    file.close()
-
-    for line in read_lines:
-        print("Image Path : ", line)
-        # read image file
-        img_file = cv2.imread(line[:-1])
-
-        # read .txt file
-        label_path = line[:-4] + "txt"
-        label_file = open(label_path, "r")
-        label_read_line = label_file.readlines()
-        label_file.close()
-
-        for line1 in label_read_line:
-            label_line = line1
-
-            category_id = label_line.split()[0]
-            x_center = float(label_line.split()[1])
-            y_center = float(label_line.split()[2])
-            width = float(label_line.split()[3])
-            height = float(label_line.split()[4])
-
-            int_x_center = int(img_file.shape[1] * x_center)
-            int_y_center = int(img_file.shape[0] * y_center)
-            int_width = int(img_file.shape[1] * width)
-            int_height = int(img_file.shape[0] * height)
-
-            min_x = int_x_center - int_width / 2
-            min_y = int_y_center - int_height / 2
-            width = int(img_file.shape[1] * width)
-            height = int(img_file.shape[0] * height)
-
-            print("class name :", classes[int(category_id)])
-            print("x_upper_left : ", min_x, "\t", "y_upper_left : ", min_y)
-            print("width : ", width, "\t", "\t", "height : ", height)
-            print()
-
-            # Draw bounding box
-            cv2.rectangle(
-                img_file,
-                (int(int_x_center - int_width / 2), int(int_y_center - int_height / 2)),
-                (int(int_x_center + int_width / 2), int(int_y_center + int_height / 2)),
-                color_list[int(category_id)],
-                3,
-            )
-
-        cv2.imshow(line, img_file)
-        delay = cv2.waitKeyEx()
-
-        # If you press ESC, exit
-        if delay == 27 or delay == 113:
-            break
-
-        cv2.destroyAllWindows()
-
-
 def get_args():
-    parser = argparse.ArgumentParser("Yolo format annotations to COCO dataset format")
+    parser = argparse.ArgumentParser(
+        "Yolo format annotations to COCO dataset format")
     parser.add_argument(
         "-p",
-        "--path",
+        "--ipath",
         type=str,
         help="Absolute path for 'train.txt' or 'test.txt', or the root dir for images.",
     )
     parser.add_argument(
-        "--debug",
+        "-l",
+        "--lpath",
+        type=str,
+        help="Absolute path for 'train.txt' or 'test.txt', or the root dir for labels.",
+    )
+    parser.add_argument(
+        "--predict",
         action="store_true",
-        help="Visualize bounding box and print annotation information",
+        help="if the input csv's are of prediction's & not of ground truths",
     )
     parser.add_argument(
         "--output",
@@ -205,29 +173,26 @@ def main(opt):
     output_name = opt.output
     output_path = "output/" + output_name
 
+    print(opt)
     print("Start!")
 
-    if opt.debug is True:
-        debug(opt)
-        print("Debug Finished!")
-    else:
-        (
-            coco_format["images"],
-            coco_format["annotations"],
-        ) = get_images_info_and_annotations(opt)
+    (
+        coco_format["images"],
+        coco_format["annotations"],
+    ) = get_images_info_and_annotations(opt)
 
-        for index, label in enumerate(classes):
-            categories = {
-                "supercategory": "Defect",
-                "id": index + 1,  # ID starts with '1' .
-                "name": label,
-            }
-            coco_format["categories"].append(categories)
+    for index, label in enumerate(classes):
+        categories = {
+            "supercategory": "N/A",
+            "id": index + 1,  # ID starts with '1' .
+            "name": label,
+        }
+        coco_format["categories"].append(categories)
 
-        with open(output_path, "w") as outfile:
-            json.dump(coco_format, outfile, indent=4)
+    with open(output_path, "w") as outfile:
+        json.dump(coco_format, outfile, indent=4)
 
-        print("Finished!")
+    print("Finished!")
 
 
 if __name__ == "__main__":

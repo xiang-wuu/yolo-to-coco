@@ -13,7 +13,7 @@ def create_image_annotation(file_path: Path, width: int, height: int, image_id: 
 
 
 def create_annotation_from_yolo_format(
-    min_x, min_y, width, height, image_id, category_id, annotation_id, segmentation=True
+    min_x, min_y, width, height, score, image_id, category_id, annotation_id, segmentation=True
 ):
     bbox = (float(min_x), float(min_y), float(width), float(height))
     area = width * height
@@ -25,8 +25,9 @@ def create_annotation_from_yolo_format(
         seg = []
     annotation = {
         "id": annotation_id,
-        "image_id": image_id,
+        "image_id": int(image_id),
         "bbox": bbox,
+        "score": score,
         "area": area,
         "iscrowd": 0,
         "category_id": category_id,
